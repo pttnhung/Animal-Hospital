@@ -1,0 +1,485 @@
+using System;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+/// <summary>
+/// Quản lý toàn bộ quy trình Check-in bệnh nhân tại Quầy Lễ Tân:
+/// 1. Chuông gọi bệnh nhân (Bell) -> NPC tiến vào bấm chuông thoại "I'm Mai Yamada, I'm here for my appointment..."
+/// 2. Bảng kẹp giấy (Clipboard): Mở UI giấy tờ, ký xác nhận.
+/// 3. Máy ảnh trên chân máy (Camera): Flash, chụp ảnh bệnh nhân, ảnh Polaroid hiện dần trong 3s trong thời gian hiển thị 15 giây.
+/// 4. Máy tính (Computer): Tiến trình "REGISTERING..." chạy thanh progress bar.
+/// 5. Máy in (Printer): Nhấn E in ra thẻ/giấy chỉ định phòng (5 phòng điều trị).
+/// 6. Hoàn tất: Bắn sự kiện OnPatientCheckedIn -> Bệnh nhân chuyển sang Leaving.
+/// </summary>
+public class AAH_CheckInSequence : MonoBehaviour
+{
+    public static AAH_CheckInSequence Instance { get; private set; }
+
+    public enum CheckInStep
+    {
+        Idle_WaitingBell,
+        PatientApproaching,
+        PatientDialogue,
+        Step1_Clipboard,
+        Step2_CameraTripod,
+        Step3_ComputerRegister,
+        Step4_PrinterRoomCard,
+        Completed_Leaving
+    }
+
+    [Header("Current State")]
+    public CheckInStep currentStep = CheckInStep.Idle_WaitingBell;
+
+    [Header("Interactable Steps (Quầy Lễ Tân)")]
+    public AAH_InteractableStep stepBell;
+    public AAH_InteractableStep stepClipboard;
+    public AAH_InteractableStep stepCameraTripod;
+    public AAH_InteractableStep stepComputer;
+    public AAH_InteractableStep stepPrinter;
+
+    [Header("Patient Info")]
+    public string patientName = "Mai Yamada";
+    public string patientDialogue = "I'm Mai Yamada. I'm here for my appointment...";
+    public Transform patientStandPoint;
+    public Transform patientSpawnPoint;
+    public Transform patientExitPoint;
+    public GameObject activePatientObject;
+
+    [Header("UI - Prompt & Dialogue")]
+    public TextMeshProUGUI txtInteractionPrompt;
+    public GameObject panelDialogue;
+    public TextMeshProUGUI txtDialogueContent;
+
+    [Header("UI - Step 1: Clipboard")]
+    public GameObject panelClipboard;
+    public TextMeshProUGUI txtClipboardPatientName;
+    public Button btnSignClipboard;
+
+    [Header("UI - Step 2: Camera & Polaroid")]
+    public GameObject panelFlash;          // Trắng loá màn hình
+    public GameObject cardPolaroidHUD;     // Thẻ ảnh Polaroid trên HUD
+    public Image imgPolaroidPhoto;        // Ảnh bên trong Polaroid
+    public TextMeshProUGUI txtPolaroidName;
+    public Camera photoCaptureCamera;     // Camera chụp ảnh bệnh nhân (RenderTexture)
+
+    [Header("UI - Step 3: Computer")]
+    public GameObject panelComputerRegister;
+    public Slider sliderRegisterProgress;
+    public TextMeshProUGUI txtRegisterStatus;
+    [Header("Reception monitor")]
+    [SerializeField] private UnityEngine.UI.Image _receptionProgress;
+    [SerializeField] private TMPro.TMP_Text _receptionStatus;
+
+    [Header("UI - Step 4: Printer")]
+    public GameObject panelPrinterCard;
+    public TextMeshProUGUI txtAssignedRoom;
+    public GameObject worldPrintedCardObject; // Object tờ giấy chìa ra ở khe máy in
+
+    [Header("Audio")]
+    public AudioSource audioSource;
+    public AudioClip soundBell;
+    public AudioClip soundCameraShutter;
+    public AudioClip soundPrinter;
+    public AudioClip soundComputerBeep;
+
+    // Events
+    public event Action<string, int> OnPatientCheckedIn;
+
+    [Header("Patient and room integration")]
+    public AAH_RoomRegistry roomRegistry;
+    public SC_FPSController playerController;
+    public Transform bellVisual;
+    public TMPro.TextMeshProUGUI txtQueueSummary;
+    [Min(0.1f)] public float dialogueDuration = 4f;
+    [Min(0.1f)] public float photoDevelopDuration = 3f;
+    [Min(0.1f)] public float registerDuration = 2.5f;
+    [Min(0.1f)] public float printDuration = 1.5f;
+    private AAH_PatientActor _patient;
+    private AAH_RoomRegistry.RoomSlot _reservedRoom;
+    private bool _busy, _modal, _sentCompletion, _savedCanMove;
+    private CursorLockMode _savedCursor;
+    private bool _savedVisible;
+    private const double PhotoDisplaySeconds = 15.0;
+    private double _photoExpiresAt;
+    private Texture2D _photoTexture;
+    private Sprite _photoSprite;
+    private Coroutine _operation;
+    private Vector3 _clipboardDeskPosition;
+    private const float RefusalDelaySeconds = 5f;
+    [Header("Day 1 story")]
+    [SerializeField] private AAH_Day1Dialogue _day1Dialogue;
+    private bool _storyDialogue;
+    public bool Busy => _busy || _modal || _storyDialogue;
+    // The automatic bell, arrival speech and clipboard handover only occupy the desk.
+    public bool BlocksWorldInteraction => _modal || _storyDialogue ||
+        (_busy && currentStep != CheckInStep.PatientApproaching && currentStep != CheckInStep.PatientDialogue);
+
+    public IEnumerator ShowStoryDialogue(string speaker, AAH_Day1Dialogue data, AAH_Day1Dialogue.Line[] lines)
+    {
+        while (Busy || (panelDialogue != null && panelDialogue.activeSelf)) yield return null;
+        CancelAmbientDialogue();
+        _storyDialogue = true; SetStep(currentStep);
+        foreach (var line in lines)
+        {
+            txtDialogueContent.text = "<b>" + speaker + "</b>\n" + data.Resolve(line);
+            panelDialogue.SetActive(true);
+            yield return new WaitForSeconds(dialogueDuration);
+        }
+        panelDialogue.SetActive(false);
+        _storyDialogue = false; SetStep(currentStep);
+    }
+    private bool _refusalInProgress;
+    public bool HasModalInteraction => _modal;
+    public bool CanRefuseVisitor => _patient != null && !_sentCompletion && !_modal && !_storyDialogue && !_refusalInProgress &&
+        (currentStep == CheckInStep.PatientDialogue || (!_busy && currentStep >= CheckInStep.Step1_Clipboard && currentStep <= CheckInStep.Step4_PrinterRoomCard));
+    public bool TryRefuseVisitor(AAH_ReceptionShutter shutter)
+    {
+        var game = AAH_GameManager.Instance;
+        if (game == null || game.currentDay != 2 || game.shiftEnded || shutter == null || !CanRefuseVisitor) return false;
+        if (_operation != null) StopCoroutine(_operation);
+        CancelAmbientDialogue();
+        _refusalInProgress = true;
+        _busy = true;
+        HidePanels();
+        SetStep(CheckInStep.PatientDialogue);
+        _operation = StartCoroutine(RefusalRoutine(_patient, game));
+        return true;
+    }
+    private IEnumerator RefusalRoutine(AAH_PatientActor visitor, AAH_GameManager game)
+    {
+        string complaint = visitor.IsAnomaly ? "Mở… mở ra. Tôi đã tập cười giống hệt người đến trước mà."
+            : visitor.DisplayName == "Polly" ? "Lại phải về sao? Tôi đã xin nghỉ cả buổi chỉ để đến khám."
+            : UnityEngine.Random.value < 0.5f ? "Tôi còn chưa nói xong! Ít ra cũng cho tôi biết vì sao chứ."
+            : "Tôi đã chờ từ sáng. Bác sĩ định để tôi về thế này thật à?";
+        if (txtDialogueContent != null) txtDialogueContent.text = "<b>" + visitor.DisplayName + "</b>\n" + complaint;
+        if (panelDialogue != null) panelDialogue.SetActive(true);
+        yield return new WaitForSeconds(RefusalDelaySeconds);
+        if (panelDialogue != null) panelDialogue.SetActive(false);
+        roomRegistry.ReleaseRoom(visitor.PatientId);
+        game.RecordDeskRefusal(visitor);
+        Vector3 start = visitor.transform.position;
+        visitor.WalkOutFromDesk();
+        while (visitor.gameObject.activeSelf && !visitor.IsAwayFrom(start)) yield return null;
+        _refusalInProgress = false;
+        _operation = null;
+        _busy = false;
+        ClearDesk();
+    }
+    public bool HasPatient => _patient != null;
+    public AAH_PatientActor CurrentPatient => _patient;
+    public bool ReadyForPatient => isActiveAndEnabled && _patient == null && roomRegistry != null && roomRegistry.FreeCount > 0;
+    private Coroutine _ambientDialogue;
+    private string _ambientText;
+    public bool IsAmbientDialogueVisible => _ambientDialogue != null;
+    public bool TryShowAmbientDialogue(string speaker, string text, float duration)
+    {
+        if (!isActiveAndEnabled || Busy || Time.timeScale <= 0f || panelDialogue == null || txtDialogueContent == null || panelDialogue.activeSelf) return false;
+        _ambientDialogue = StartCoroutine(AmbientDialogueRoutine(speaker, text, duration));
+        return true;
+    }
+    private IEnumerator AmbientDialogueRoutine(string speaker, string text, float duration)
+    {
+        _ambientText = "<b>" + speaker + "</b>\n" + text;
+        txtDialogueContent.text = _ambientText;
+        panelDialogue.SetActive(true);
+        yield return new WaitForSeconds(Mathf.Max(0.1f, duration));
+        if (!Busy && txtDialogueContent != null && txtDialogueContent.text == _ambientText && panelDialogue != null) panelDialogue.SetActive(false);
+        _ambientDialogue = null; _ambientText = null;
+    }
+    public void CancelAmbientDialogue()
+    {
+        if (_ambientDialogue == null) return;
+        StopCoroutine(_ambientDialogue); _ambientDialogue = null;
+        if (!Busy && txtDialogueContent != null && txtDialogueContent.text == _ambientText && panelDialogue != null) panelDialogue.SetActive(false);
+        _ambientText = null;
+    }
+
+    void Awake()
+    {
+        Instance = this;
+        AAH_InteractionHints.Center(txtInteractionPrompt);
+        if (cardPolaroidHUD != null) cardPolaroidHUD.SetActive(false);
+        if (stepClipboard != null) _clipboardDeskPosition = stepClipboard.transform.position;
+    }
+    void OnEnable()
+    {
+        if (stepClipboard != null) stepClipboard.OnInteracted += HandleClipboardInteracted;
+        if (stepCameraTripod != null) stepCameraTripod.OnInteracted += HandleCameraInteracted;
+        if (stepComputer != null) stepComputer.OnInteracted += HandleComputerInteracted;
+        if (stepPrinter != null) stepPrinter.OnInteracted += HandlePrinterInteracted;
+        if (btnSignClipboard != null) btnSignClipboard.onClick.AddListener(ConfirmSignClipboard);
+    }
+    void Start() { HidePanels(); ResetSteps(); SetStep(CheckInStep.Idle_WaitingBell); }
+    private void HidePanels()
+    {
+        foreach (var panel in new[] { panelDialogue, panelClipboard, panelFlash, panelComputerRegister, panelPrinterCard, worldPrintedCardObject })
+            if (panel != null) panel.SetActive(false);
+        if (stepClipboard != null) stepClipboard.gameObject.SetActive(false);
+    }
+    private void ResetSteps()
+    {
+        if (_receptionProgress != null) _receptionProgress.fillAmount = 0f;
+        if (_receptionStatus != null) _receptionStatus.text = "CHỜ ĐĂNG KÝ\n0%";
+        foreach (var step in new[] { stepBell, stepClipboard, stepCameraTripod, stepComputer, stepPrinter })
+            if (step != null) step.ResetForPatient();
+    }
+    public bool BeginPatient(AAH_PatientActor patient)
+    {
+        if (!ReadyForPatient || patient == null) return false;
+        CancelAmbientDialogue();
+        _reservedRoom = null;
+        _patient = patient; activePatientObject = patient.gameObject;
+        patientName = patient.DisplayName; patientDialogue = patient.Dialogue; _sentCompletion = false;
+        ResetSteps(); HidePanels(); SetStep(CheckInStep.PatientApproaching);
+        patient.ArrivedAtDesk += HandlePatientArrived; patient.NavigationFailed += HandleNavigationFailed;
+        return true;
+    }
+    public void SetStep(CheckInStep step)
+    {
+        currentStep = step;
+        if (stepBell != null) stepBell.SetStepActive(false); // NPC, not player, rings the bell.
+        if (stepClipboard != null) stepClipboard.SetStepActive(!Busy && step == CheckInStep.Step1_Clipboard);
+        if (stepCameraTripod != null) stepCameraTripod.SetStepActive(!Busy && step == CheckInStep.Step2_CameraTripod);
+        if (stepComputer != null) stepComputer.SetStepActive(!Busy && step == CheckInStep.Step3_ComputerRegister);
+        if (stepPrinter != null) stepPrinter.SetStepActive(!Busy && step == CheckInStep.Step4_PrinterRoomCard);
+    }
+    private void Update()
+    {
+        if (_photoSprite != null && Time.unscaledTimeAsDouble >= _photoExpiresAt)
+            HidePhoto();
+        if (txtQueueSummary != null && roomRegistry != null)
+        {
+            int freeRooms = roomRegistry.FreeCount;
+            string reception = _patient != null ? patientName : freeRooms == 0 ? "Chờ phòng trống" : "Chờ bệnh nhân";
+            txtQueueSummary.text = $"Tiếp nhận: {reception} | Phòng trống: {freeRooms}/{AAH_RoomRegistry.TreatmentRoomCount}";
+        }
+        if (_patient != null && _sentCompletion && _patient.IsAwayFrom(patientStandPoint.position)) ClearDesk();
+    }
+    public Vector3 DeskForward(Transform stand)
+    {
+        if (bellVisual != null)
+        {
+            Vector3 towardCounter = Vector3.ProjectOnPlane(bellVisual.position - stand.position, Vector3.up);
+            if (towardCounter.sqrMagnitude > 0.01f) return towardCounter.normalized;
+        }
+        return stand.forward;
+    }
+    private void HandlePatientArrived(AAH_PatientActor patient)
+    {
+        if (patient != _patient || currentStep != CheckInStep.PatientApproaching) return;
+        if (patientStandPoint != null)
+            patient.FacePhotoCamera(patient.VisualBounds.center + DeskForward(patientStandPoint));
+        _busy = true; _operation = StartCoroutine(PatientDialogueRoutine());
+    }
+    private IEnumerator PatientDialogueRoutine()
+    {
+        PlaySound(soundBell);
+        if (bellVisual != null)
+        {
+            Vector3 scale = bellVisual.localScale;
+            bellVisual.localScale = new Vector3(scale.x, scale.y * 0.85f, scale.z);
+            yield return new WaitForSeconds(0.15f); bellVisual.localScale = scale;
+        }
+        _patient.SetDeskState(AAH_PatientActor.PatientState.Dialogue); SetStep(CheckInStep.PatientDialogue);
+        if (panelDialogue != null) panelDialogue.SetActive(true);
+        if (_day1Dialogue != null && AAH_GameManager.Instance != null && AAH_GameManager.Instance.currentDay == 1 && _patient.DisplayName == "Polly")
+        {
+            foreach (var line in _day1Dialogue.Arrival)
+            {
+                if (txtDialogueContent != null) txtDialogueContent.text = "<b>" + patientName + "</b>\n" + _day1Dialogue.Resolve(line);
+                yield return new WaitForSeconds(dialogueDuration);
+            }
+        }
+        else
+        {
+            if (txtDialogueContent != null) txtDialogueContent.text = "<b>" + patientName + "</b>\n" + patientDialogue;
+            yield return new WaitForSeconds(dialogueDuration);
+        }
+        if (panelDialogue != null) panelDialogue.SetActive(false);
+        _patient.SetDeskState(AAH_PatientActor.PatientState.CheckingIn);
+        if (stepClipboard != null)
+        {
+            stepClipboard.gameObject.SetActive(true);
+            Vector3 handoverStart = _patient.transform.position + Vector3.up * 3f;
+            float t = 0f;
+            while (t < 1f)
+            {
+                t += Time.deltaTime * 2f;
+                stepClipboard.transform.position = Vector3.Lerp(handoverStart, _clipboardDeskPosition, Mathf.SmoothStep(0f, 1f, t));
+                yield return null;
+            }
+            stepClipboard.transform.position = _clipboardDeskPosition;
+        }
+        _busy = false; SetStep(CheckInStep.Step1_Clipboard); _operation = null;
+    }
+    private bool Accept(CheckInStep expected) => !Busy && _patient != null && currentStep == expected;
+    private void HandleClipboardInteracted()
+    {
+        if (!Accept(CheckInStep.Step1_Clipboard)) return;
+        if (panelClipboard == null || btnSignClipboard == null) { Debug.LogError("Clipboard UI is not wired.", this); return; }
+        _modal = true; SetStep(currentStep); panelClipboard.SetActive(true);
+        if (txtClipboardPatientName != null) txtClipboardPatientName.text = "HỒ SƠ TIẾP NHẬN\n\nBệnh nhân: " + patientName + "\nMã hồ sơ: " + _patient.PatientId + "\nLịch hẹn: Khám ban đầu\n\nXem và ký xác nhận hồ sơ.";
+        _savedCursor = Cursor.lockState; _savedVisible = Cursor.visible;
+        if (playerController != null) { _savedCanMove = playerController.canMove; playerController.canMove = false; }
+        Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
+    }
+    private void RestoreModal()
+    {
+        if (!_modal) return;
+        _modal = false; if (panelClipboard != null) panelClipboard.SetActive(false);
+        if (playerController != null) playerController.canMove = _savedCanMove;
+        Cursor.lockState = _savedCursor; Cursor.visible = _savedVisible;
+    }
+    public void CancelClipboard() { RestoreModal(); SetStep(currentStep); }
+    public void ConfirmSignClipboard()
+    {
+        if (!_modal || _patient == null || currentStep != CheckInStep.Step1_Clipboard) return;
+        RestoreModal(); stepClipboard.MarkCompleted(); SetStep(CheckInStep.Step2_CameraTripod);
+    }
+    private void HandleCameraInteracted()
+    {
+        if (!Accept(CheckInStep.Step2_CameraTripod)) return;
+        _busy = true; SetStep(currentStep); _operation = StartCoroutine(CapturePhotoRoutine());
+    }
+    private IEnumerator CapturePhotoRoutine()
+    {
+        PlaySound(soundCameraShutter);
+        bool captured = false;
+        try { CaptureSnapshot(); captured = true; }
+        catch (Exception e) { Debug.LogError("Patient photo failed: " + e.Message, this); }
+        if (!captured) { _busy = false; SetStep(currentStep); _operation = null; yield break; }
+        txtPolaroidName.text = patientName;
+        imgPolaroidPhoto.color = Color.black;
+        _photoExpiresAt = Time.unscaledTimeAsDouble + PhotoDisplaySeconds;
+        cardPolaroidHUD.SetActive(true);
+        if (panelFlash != null) { panelFlash.SetActive(true); yield return new WaitForSeconds(0.12f); panelFlash.SetActive(false); }
+        float elapsed = 0f;
+        while (elapsed < photoDevelopDuration) { elapsed += Time.deltaTime; imgPolaroidPhoto.color = Color.Lerp(Color.black, Color.white, elapsed / photoDevelopDuration); yield return null; }
+        AAH_PolaroidNoise.SetFor(imgPolaroidPhoto, CurrentPatient != null && CurrentPatient.IsAnomaly);
+        imgPolaroidPhoto.color = Color.white; stepCameraTripod.MarkCompleted(); _busy = false;
+        SetStep(CheckInStep.Step3_ComputerRegister); _operation = null;
+    }
+    private void CaptureSnapshot()
+    {
+        if (photoCaptureCamera == null || imgPolaroidPhoto == null || cardPolaroidHUD == null || txtPolaroidName == null) throw new InvalidOperationException("Photo UI/camera missing");
+        var bounds = _patient.VisualBounds;
+        photoCaptureCamera.transform.position = bounds.center + DeskForward(patientStandPoint) * 4.5f + Vector3.up * 0.6f;
+        _patient.FacePhotoCamera(photoCaptureCamera.transform.position);
+        bounds = _patient.VisualBounds;
+        photoCaptureCamera.transform.LookAt(bounds.center + Vector3.up * 0.7f);
+        photoCaptureCamera.fieldOfView = 65f;
+        var oldTarget = photoCaptureCamera.targetTexture; var oldActive = RenderTexture.active;
+        var rt = RenderTexture.GetTemporary(512, 512, 24);
+        Texture2D texture = null;
+        Sprite sprite;
+        try
+        {
+            photoCaptureCamera.targetTexture = rt; photoCaptureCamera.Render(); RenderTexture.active = rt;
+            texture = new Texture2D(512, 512, TextureFormat.RGB24, false);
+            texture.ReadPixels(new Rect(0, 0, 512, 512), 0, 0); texture.Apply();
+            sprite = Sprite.Create(texture, new Rect(0, 0, 512, 512), new Vector2(0.5f, 0.5f));
+        }
+        catch { if (texture != null) Destroy(texture); throw; }
+        finally { photoCaptureCamera.targetTexture = oldTarget; RenderTexture.active = oldActive; RenderTexture.ReleaseTemporary(rt); }
+        ReleasePhoto(); _photoTexture = texture;
+        _photoSprite = sprite;
+        imgPolaroidPhoto.sprite = _photoSprite;
+    }
+    private void HidePhoto()
+    {
+        if (cardPolaroidHUD != null) cardPolaroidHUD.SetActive(false);
+        if (imgPolaroidPhoto != null) imgPolaroidPhoto.sprite = null;
+        ReleasePhoto();
+    }
+    private void ReleasePhoto()
+    {
+        if (_photoSprite != null) Destroy(_photoSprite);
+        if (_photoTexture != null) Destroy(_photoTexture);
+        _photoSprite = null; _photoTexture = null;
+    }
+    private void HandleComputerInteracted()
+    {
+        if (!Accept(CheckInStep.Step3_ComputerRegister)) return;
+        _busy = true; SetStep(currentStep); _operation = StartCoroutine(RegisteringRoutine());
+    }
+    private IEnumerator RegisteringRoutine()
+    {
+        panelComputerRegister.SetActive(true); txtRegisterStatus.text = "REGISTERING..."; sliderRegisterProgress.value = 0;
+        PlaySound(soundComputerBeep);
+        float elapsed = 0f;
+        while (elapsed < registerDuration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsed / registerDuration);
+            sliderRegisterProgress.value = progress;
+            if (_receptionProgress != null) _receptionProgress.fillAmount = progress;
+            if (_receptionStatus != null) _receptionStatus.SetText("ĐANG ĐĂNG KÝ\n{0:0}%", progress * 100f);
+            yield return null;
+        }
+        if (_receptionProgress != null) _receptionProgress.fillAmount = 1f;
+        if (_receptionStatus != null) _receptionStatus.text = "ĐĂNG KÝ HOÀN TẤT\n100%";
+        txtRegisterStatus.text = "REGISTERED"; yield return new WaitForSeconds(0.7f);
+        panelComputerRegister.SetActive(false); stepComputer.MarkCompleted(); _busy = false;
+        SetStep(CheckInStep.Step4_PrinterRoomCard); _operation = null;
+    }
+    private void HandlePrinterInteracted()
+    {
+        if (!Accept(CheckInStep.Step4_PrinterRoomCard)) return;
+        _reservedRoom = roomRegistry.Reserve(_patient.PatientId);
+        if (_reservedRoom == null) return;
+        _busy = true; SetStep(currentStep); _operation = StartCoroutine(PrintRoutine());
+    }
+    private IEnumerator PrintRoutine()
+    {
+        PlaySound(soundPrinter);
+        worldPrintedCardObject.SetActive(true); panelPrinterCard.SetActive(true);
+        txtAssignedRoom.text = "THẺ KHÁM BỆNH\n" + patientName + "\n" + _patient.PatientId + "\nPHÒNG SỐ " + _reservedRoom.roomNumber;
+        var worldLabel = worldPrintedCardObject.GetComponentInChildren<TMPro.TextMeshPro>();
+        if (worldLabel != null) worldLabel.text = "ROOM " + _reservedRoom.roomNumber + "\n" + patientName;
+        yield return new WaitForSeconds(printDuration);
+        stepPrinter.MarkCompleted(); _busy = false; SetStep(CheckInStep.Completed_Leaving);
+        if (!_sentCompletion) { _sentCompletion = true; OnPatientCheckedIn?.Invoke(patientName, _reservedRoom.roomNumber); _patient.LeaveForRoom(_reservedRoom); }
+        yield return new WaitForSeconds(2f); panelPrinterCard.SetActive(false); _operation = null;
+    }
+    private void ClearDesk()
+    {
+        if (_patient != null) { _patient.ArrivedAtDesk -= HandlePatientArrived; _patient.NavigationFailed -= HandleNavigationFailed; }
+        _patient = null; activePatientObject = null; _reservedRoom = null;
+        if (stepClipboard != null) stepClipboard.gameObject.SetActive(false);
+        SetStep(CheckInStep.Idle_WaitingBell);
+    }
+    public void RemoveDeceased(AAH_PatientActor actor)
+    {
+        if (actor != _patient) return;
+        _refusalInProgress = false;
+        CancelAmbientDialogue();
+        HandleNavigationFailed(actor);
+        ResetSteps();
+    }
+
+    private void HandleNavigationFailed(AAH_PatientActor patient)
+    {
+        if (patient != _patient || _refusalInProgress) return;
+        if (!_sentCompletion) roomRegistry.ReleaseRoom(patient.PatientId);
+        if (_operation != null) StopCoroutine(_operation);
+        _operation = null; _busy = false; RestoreModal(); HidePanels(); ClearDesk();
+    }
+    private void PlaySound(AudioClip clip) { if (clip != null && audioSource != null) audioSource.PlayOneShot(clip); }
+    void OnDisable()
+    {
+        _refusalInProgress = false;
+        HidePhoto();
+        StopAllCoroutines(); _operation = null; _busy = false; RestoreModal(); HidePanels();
+        if (stepClipboard != null) stepClipboard.OnInteracted -= HandleClipboardInteracted;
+        if (stepCameraTripod != null) stepCameraTripod.OnInteracted -= HandleCameraInteracted;
+        if (stepComputer != null) stepComputer.OnInteracted -= HandleComputerInteracted;
+        if (stepPrinter != null) stepPrinter.OnInteracted -= HandlePrinterInteracted;
+        if (btnSignClipboard != null) btnSignClipboard.onClick.RemoveListener(ConfirmSignClipboard);
+        if (_patient != null && !_sentCompletion && roomRegistry != null) roomRegistry.ReleaseRoom(_patient.PatientId);
+        ClearDesk(); ResetSteps();
+        if (Instance == this) Instance = null;
+    }
+    void OnDestroy() { ReleasePhoto(); }
+}
