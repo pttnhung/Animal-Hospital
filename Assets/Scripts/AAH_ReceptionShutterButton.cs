@@ -20,8 +20,7 @@ public sealed class AAH_ReceptionShutterButton : MonoBehaviour
     private bool _showHint;
     private void Update()
     {
-        _showHint = IsAimed() && (_checkIn == null || !_checkIn.HasModalInteraction)
-            && (AAH_GameManager.Instance == null || !AAH_GameManager.Instance.shiftEnded);
+        _showHint = CanUseButton();
         _outline?.Show(_showHint);
     }
     private void OnGUI()
@@ -45,7 +44,7 @@ public sealed class AAH_ReceptionShutterButton : MonoBehaviour
                 }
             }
             var target = _appearance != null ? _appearance : _buttonCollider.transform;
-            _outline = new AAH_FocusOutline(target);
+            _outline = new AAH_FocusOutline(target, edgePixels: 2);
             var filter = target.GetComponent<MeshFilter>();
             if (_appearance != null && filter != null && filter.sharedMesh != null && target.GetComponent<Collider>() == null)
             {
@@ -91,14 +90,18 @@ public sealed class AAH_ReceptionShutterButton : MonoBehaviour
         Vector3 nearest = hit.point; nearest.y = position.y;
         return Vector3.Distance(position, nearest) <= _interactionDistance;
     }
+    private bool CanUseButton()
+    {
+        return Cursor.lockState == CursorLockMode.Locked && _curtain != null &&
+            (_checkIn == null || !_checkIn.HasModalInteraction) &&
+            (AAH_GameManager.Instance == null || !AAH_GameManager.Instance.shiftEnded) && IsAimed();
+    }
     private void HandlePress(UnityEngine.InputSystem.InputAction.CallbackContext context)
     {
-        if (!IsAimed()) return;
-        if (_checkIn != null && _checkIn.HasModalInteraction) return;
-        if (AAH_GameManager.Instance != null && AAH_GameManager.Instance.shiftEnded) return;
+        if (!CanUseButton()) return;
         _onPressed.Invoke();
     }
-    private void OnDisable() { _outline?.Show(false); _interact?.Disable(); }
+    private void OnDisable() { _showHint = false; _outline?.Show(false); _interact?.Disable(); }
     private void OnDestroy()
     {
         _outline?.Dispose();

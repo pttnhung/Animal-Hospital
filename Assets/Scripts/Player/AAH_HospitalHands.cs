@@ -13,6 +13,8 @@ public sealed class AAH_HospitalHands : MonoBehaviour
     private AAH_RoomTreatmentSequence[] _rooms;
     private AAH_PatientActor _carried;
     private string _hint;
+    private Transform _hoverTarget;
+    private readonly AAH_WorldHover _hover = new AAH_WorldHover();
     internal static AAH_HospitalHands Local { get; private set; }
     public bool OwnsInteraction { get; private set; }
     public bool CarryingBody => _carried != null;
@@ -30,6 +32,7 @@ public sealed class AAH_HospitalHands : MonoBehaviour
     private void Update()
     {
         _hint = null;
+        _hoverTarget = null;
         OwnsInteraction = false;
         if (_camera == null || _player == null || !_player.canMove || Time.timeScale <= 0f ||
             Cursor.lockState != CursorLockMode.Locked || (AAH_GameManager.Instance != null && AAH_GameManager.Instance.shiftEnded)) return;
@@ -44,12 +47,14 @@ public sealed class AAH_HospitalHands : MonoBehaviour
         }
         if (!Physics.Raycast(_camera.transform.position, _camera.transform.forward, out var hit,
                 _reach, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide)) return;
-        if (hit.collider.GetComponentInParent<AAH_TrashCan>() != null)
+        var bin = hit.collider.GetComponentInParent<AAH_TrashCan>();
+        if (bin != null)
         {
             OwnsInteraction = true;
             string held = CarryingBody ? _carried.DisplayName : _inventory != null ? _inventory.SelectedItem?.DisplayName : null;
             if (string.IsNullOrEmpty(held)) return;
             _hint = "[E] Bỏ " + held + " vào thùng rác";
+            _hoverTarget = bin.transform;
             if (keyboard.eKey.wasPressedThisFrame) Discard();
             return;
         }
@@ -57,6 +62,7 @@ public sealed class AAH_HospitalHands : MonoBehaviour
         var actor = hit.collider.GetComponentInParent<AAH_PatientActor>();
         if (actor == null || actor.State != AAH_PatientActor.PatientState.Dead || actor.BodyCollider != hit.collider) return;
         OwnsInteraction = true;
+        _hoverTarget = actor.transform;
         _hint = "[E] Xách " + actor.DisplayName;
         if (!keyboard.eKey.wasPressedThisFrame) return;
         _carried = actor;
@@ -67,6 +73,7 @@ public sealed class AAH_HospitalHands : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (_hint != null && Time.timeScale > 0f) _hover.Draw(_hoverTarget, _camera);
         if (!CarryingBody || _camera == null) return;
         Transform cameraTransform = _camera.transform;
         _carried.transform.SetPositionAndRotation(cameraTransform.TransformPoint(new Vector3(1.5f, -2.2f, 2.6f)),
@@ -122,6 +129,7 @@ public sealed class AAH_HospitalHands : MonoBehaviour
 
     private void OnDestroy()
     {
+        _hover.Dispose();
         if (Local == this) Local = null;
     }
 }

@@ -12,6 +12,9 @@ public class AAH_PlayerInventory : MonoBehaviour
     [SerializeField] private AAH_ItemDefinition[] _startingItems = new AAH_ItemDefinition[0];
 
     private readonly AAH_ItemDefinition[] _slots = new AAH_ItemDefinition[SlotCount];
+    private readonly int[] _remainingUses = new int[SlotCount];
+    public int SelectedUses => _remainingUses[SelectedIndex];
+
     private UnityEngine.InputSystem.InputAction[] _selectActions;
     private UnityEngine.InputSystem.InputAction _useAction, _cursorAction;
     private bool _cursorReleased, _restoreCanMove;
@@ -107,6 +110,7 @@ public class AAH_PlayerInventory : MonoBehaviour
         {
             if (_slots[i] != null) continue;
             _slots[i] = item;
+            _remainingUses[i] = item.UsesPerItem;
             slot = i;
             InventoryChanged?.Invoke();
             return true;
@@ -119,6 +123,7 @@ public class AAH_PlayerInventory : MonoBehaviour
         var item = GetItem(index);
         if (item == null) return null;
         _slots[index] = null;
+        _remainingUses[index] = 0;
         InventoryChanged?.Invoke();
         return item;
     }
@@ -126,14 +131,19 @@ public class AAH_PlayerInventory : MonoBehaviour
     /// <summary>Consumes the selected item. Not consumed when it has no effect (e.g. sanity already full).</summary>
     public bool UseSelected()
     {
-        var item = SelectedItem;
+        int slot = SelectedIndex;
+        var item = _slots[slot];
         if (BodyCarried || item == null || !item.Consumable) return false;
         if (item.SanityRestore > 0)
         {
             if (_sanity == null || _sanity.ApplyChange(item.SanityRestore) <= 0) return false;
         }
-        RemoveAt(SelectedIndex);
-        ItemConsumed?.Invoke(item);
+        if (--_remainingUses[slot] == 0)
+        {
+            RemoveAt(slot);
+            ItemConsumed?.Invoke(item);
+        }
+        else InventoryChanged?.Invoke();
         return true;
     }
 }

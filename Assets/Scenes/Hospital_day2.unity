@@ -4091,7 +4091,7 @@ MonoBehaviour:
     - {fileID: 734386483}
   _guideArrow: {fileID: 1279958213}
   _guideText: {fileID: 698591873}
-  _medicineHoldPoint: {fileID: 906085665}
+  _inventory: {fileID: 0}
   _treatmentPanel: {fileID: 163126406}
   _treatmentFill: {fileID: 135271152}
   _treatmentStatus: {fileID: 1811150972}
@@ -5021,6 +5021,7 @@ MonoBehaviour:
   - {fileID: 2133014941}
   - {fileID: 484543050}
   _storeRoomDestination: {fileID: 842779488}
+  _modelYawCorrection: 0
 --- !u!65 &139779541
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -17914,6 +17915,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &484543051
 Transform:
   m_ObjectHideFlags: 0
@@ -17963,6 +17966,7 @@ MonoBehaviour:
   _height: 5.4
   _travelTimeout: 90
   _doorDistance: 9
+  _meleeReach: 2.4
 --- !u!195 &486796490
 NavMeshAgent:
   m_ObjectHideFlags: 0
@@ -26164,7 +26168,7 @@ MonoBehaviour:
     - {fileID: 734386483}
   _guideArrow: {fileID: 1493439264}
   _guideText: {fileID: 1849999558}
-  _medicineHoldPoint: {fileID: 407823824}
+  _inventory: {fileID: 0}
   _treatmentPanel: {fileID: 700515537}
   _treatmentFill: {fileID: 1132474623}
   _treatmentStatus: {fileID: 633151677}
@@ -29617,7 +29621,7 @@ Camera:
   m_ShutterSpeed: 0.005
   m_Aperture: 16
   m_FocusDistance: 10
-  m_FocalLength: 36.9322
+  m_FocalLength: 24
   m_BladeCount: 5
   m_Curvature: {x: 2, y: 11}
   m_BarrelClipping: 0.25
@@ -29632,7 +29636,7 @@ Camera:
     height: 1
   near clip plane: 0.05
   far clip plane: 1000
-  field of view: 36
+  field of view: 53.130104
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -38660,7 +38664,7 @@ MonoBehaviour:
     - {fileID: 734386483}
   _guideArrow: {fileID: 831232799}
   _guideText: {fileID: 1642878800}
-  _medicineHoldPoint: {fileID: 927117519}
+  _inventory: {fileID: 0}
   _treatmentPanel: {fileID: 602665542}
   _treatmentFill: {fileID: 1774468352}
   _treatmentStatus: {fileID: 2075392616}
@@ -46530,6 +46534,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1320085551
 Transform:
   m_ObjectHideFlags: 0
@@ -47993,6 +47999,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   menuSceneName: menu
+  _reportButton: {fileID: 0}
 --- !u!114 &1344565949
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -49275,6 +49282,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: -90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1388519715
 Transform:
   m_ObjectHideFlags: 0
@@ -50089,6 +50098,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1415953941
 Transform:
   m_ObjectHideFlags: 0
@@ -63846,6 +63857,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: CharacterModel
       objectReference: {fileID: 0}
+    - target: {fileID: -6689036041284674117, guid: 57032fc5b971fbe4dba574d774d2c02e, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: 57032fc5b971fbe4dba574d774d2c02e, type: 3}
       propertyPath: m_LocalScale.x
       value: 1
@@ -69773,6 +69788,7 @@ MonoBehaviour:
   - {fileID: 484543050}
   _arrivalDelay: 4
   _walkingSpeed: 6
+  _patientSpeedMultiplier: 1.5
   _agentTypeId: -1372625422
 --- !u!114 &1936760529
 MonoBehaviour:
@@ -71914,7 +71930,7 @@ MonoBehaviour:
     - {fileID: 734386483}
   _guideArrow: {fileID: 467044810}
   _guideText: {fileID: 1014453638}
-  _medicineHoldPoint: {fileID: 1713789391}
+  _inventory: {fileID: 0}
   _treatmentPanel: {fileID: 143820147}
   _treatmentFill: {fileID: 1424443307}
   _treatmentStatus: {fileID: 645075262}
@@ -72399,6 +72415,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1990702719
 Transform:
   m_ObjectHideFlags: 0
@@ -73777,7 +73795,7 @@ MonoBehaviour:
     - {fileID: 734386483}
   _guideArrow: {fileID: 946322534}
   _guideText: {fileID: 1147960176}
-  _medicineHoldPoint: {fileID: 1253880972}
+  _inventory: {fileID: 0}
   _treatmentPanel: {fileID: 1915504427}
   _treatmentFill: {fileID: 1468549681}
   _treatmentStatus: {fileID: 1525085291}
@@ -73992,8 +74010,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3aed94c30d34e5a468c0f21b1e23479a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  walkingSpeed: 8.5
-  runningSpeed: 11.4
+  walkingSpeed: 11
+  runningSpeed: 14.5
   jumpSpeed: 0
   gravity: 20
   playerCamera: {fileID: 811398575}
@@ -74170,6 +74188,7 @@ MonoBehaviour:
   _camera: {fileID: 811398575}
   _viewportPosition: {x: 0.8, y: 0.2}
   _distance: 0.6
+  _cellFill: 0.52
 --- !u!21 &2020747735
 Material:
   serializedVersion: 8
@@ -77346,6 +77365,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &2101850832
 Transform:
   m_ObjectHideFlags: 0
@@ -78512,6 +78533,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: -90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &2131241266
 Transform:
   m_ObjectHideFlags: 0
@@ -78957,6 +78980,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: -90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &2133014942
 Transform:
   m_ObjectHideFlags: 0

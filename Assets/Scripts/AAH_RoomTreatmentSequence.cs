@@ -57,6 +57,16 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
     public event System.Action<AAH_PatientActor> PatientRecovered;
     public event System.Action<AAH_PatientActor> ExaminationStarted;
 
+    internal Material HoverMaterial => _outlineMaterial;
+    private readonly AAH_WorldHover _bottleHover = new AAH_WorldHover();
+
+    private void LateUpdate()
+    {
+        if (Stage == TreatmentStage.CollectingMedicine && _deliveryOwner == this && IsFocused &&
+            _focusedOrder >= 0 && _focusedBottle != null && Time.timeScale > 0f)
+            _bottleHover.Draw(_focusedBottle.transform, _playerCamera);
+    }
+
     private void Awake()
     {
         AAH_InteractionHints.Center(_prompt);
@@ -103,8 +113,8 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
             PreparePatient();
         IsFocused = SelectTarget();
         SetOutline(_patientOutline, Stage == TreatmentStage.Patient && IsFocused);
-        SetOutline(_scanOutline, Stage == TreatmentStage.Scan);
-        SetOutline(_computerOutline, Stage == TreatmentStage.Computer);
+        SetOutline(_scanOutline, Stage == TreatmentStage.Scan && IsFocused);
+        SetOutline(_computerOutline, Stage == TreatmentStage.Computer && IsFocused);
         if (_prompt != null)
             _prompt.text = IsFocused ? (Stage == TreatmentStage.Patient ? "[E] Khám bệnh nhân" : Stage == TreatmentStage.Scan ? "[E] Phân tích bệnh" : "[E] Phân tích thuốc") : "";
         UpdateDelivery();
@@ -183,9 +193,10 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
             Stage = TreatmentStage.Analyzing;
             _analysis = StartCoroutine(Analyze());
         }
+        IsFocused = false;
         SetOutline(_patientOutline, false);
-        SetOutline(_scanOutline, Stage == TreatmentStage.Scan);
-        SetOutline(_computerOutline, Stage == TreatmentStage.Computer);
+        SetOutline(_scanOutline, false);
+        SetOutline(_computerOutline, false);
         if (_prompt != null) _prompt.text = "";
     }
     private IEnumerator Analyze()
@@ -330,6 +341,7 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
     }
     private void OnDestroy()
     {
+        _bottleHover.Dispose();
         ClearMedicineItems();
         if (_interact != null) { _interact.performed -= HandleInteract; _interact.Dispose(); }
         foreach (var list in new[] { _patientOutline, _scanOutline, _computerOutline }) foreach (var go in list) if (go != null) Destroy(go);

@@ -17915,6 +17915,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &484543051
 Transform:
   m_ObjectHideFlags: 0
@@ -17964,6 +17966,7 @@ MonoBehaviour:
   _height: 5.4
   _travelTimeout: 90
   _doorDistance: 9
+  _meleeReach: 2.4
 --- !u!195 &486796490
 NavMeshAgent:
   m_ObjectHideFlags: 0
@@ -29618,7 +29621,7 @@ Camera:
   m_ShutterSpeed: 0.005
   m_Aperture: 16
   m_FocusDistance: 10
-  m_FocalLength: 36.9322
+  m_FocalLength: 24
   m_BladeCount: 5
   m_Curvature: {x: 2, y: 11}
   m_BarrelClipping: 0.25
@@ -29633,7 +29636,7 @@ Camera:
     height: 1
   near clip plane: 0.05
   far clip plane: 1000
-  field of view: 36
+  field of view: 53.130104
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -36500,13 +36503,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1006945540}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
   m_LocalPosition: {x: 121.328995, y: 3.06, z: -97.761246}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1936760527}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
 --- !u!1 &1010275984
 GameObject:
   m_ObjectHideFlags: 0
@@ -40014,13 +40017,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1106425993}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 168.17651, y: 2.76, z: -81.5786}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1936760527}
-  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1108438094
 GameObject:
   m_ObjectHideFlags: 0
@@ -42764,13 +42767,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1203563594}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
   m_LocalPosition: {x: 121.328995, y: 2.85, z: -58.661}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1936760527}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
 --- !u!1 &1207331829
 GameObject:
   m_ObjectHideFlags: 0
@@ -46531,6 +46534,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1320085551
 Transform:
   m_ObjectHideFlags: 0
@@ -49277,6 +49282,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: -90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1388519715
 Transform:
   m_ObjectHideFlags: 0
@@ -50091,6 +50098,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1415953941
 Transform:
   m_ObjectHideFlags: 0
@@ -59632,6 +59641,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 7925629613175192569, guid: 3742a2df95529c348bda39a585fd23f7, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1965805853}
+    - targetCorrespondingSourceObject: {fileID: 7925629613175192569, guid: 3742a2df95529c348bda39a585fd23f7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1965805857}
     - targetCorrespondingSourceObject: {fileID: 1987879420536311089, guid: 3742a2df95529c348bda39a585fd23f7, type: 3}
       insertIndex: -1
       addedObject: {fileID: 839485703}
@@ -70902,6 +70914,23 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: -608135246714292762, guid: 3742a2df95529c348bda39a585fd23f7, type: 3}
+--- !u!114 &1965805857
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1965805849}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8be930d129ccc674c955ef2061c85a06, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _heldModel: {fileID: -6689036041284674117, guid: 6a52c3306e7307c499bdb55677c7ac2b, type: 3}
+  _icon: {fileID: 21300000, guid: 0cd13a041a563454b8d477ef7db2750c, type: 3}
+  _reach: 5
+  _holdSeconds: 1
+  _refillSeconds: 360
 --- !u!1 &1966066848
 GameObject:
   m_ObjectHideFlags: 0
@@ -72402,6 +72431,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &1990702719
 Transform:
   m_ObjectHideFlags: 0
@@ -74173,6 +74204,7 @@ MonoBehaviour:
   _camera: {fileID: 811398575}
   _viewportPosition: {x: 0.8, y: 0.2}
   _distance: 0.6
+  _cellFill: 0.52
 --- !u!21 &2020747735
 Material:
   serializedVersion: 8
@@ -74583,13 +74615,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2030163659}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0.7071068, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
   m_LocalPosition: {x: 152.944, y: 2.62, z: -114.6935}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1936760527}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
 --- !u!1 &2032097242
 GameObject:
   m_ObjectHideFlags: 0
@@ -77349,6 +77381,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: 90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &2101850832
 Transform:
   m_ObjectHideFlags: 0
@@ -78515,6 +78549,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: -90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &2131241266
 Transform:
   m_ObjectHideFlags: 0
@@ -78960,6 +78996,8 @@ MonoBehaviour:
   _existingDoor: {fileID: 0}
   _angle: -90
   _speed: 100
+  _allowNpcAutoOpen: 1
+  _autoCloseDelay: 2
 --- !u!4 &2133014942
 Transform:
   m_ObjectHideFlags: 0

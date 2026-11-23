@@ -8,11 +8,22 @@ public class AAH_CheckInInteractionController : MonoBehaviour
     [SerializeField] private AAH_InteractableStep[] _targets;
     private readonly Dictionary<Collider, AAH_InteractableStep> _selection = new Dictionary<Collider, AAH_InteractableStep>();
     private const float DeskDeviceReach = 5f;
-    private const float MinimumPhotoReach = 8f;
+    private const float OriginalPhotoRayLength = 10f;
     private readonly List<MeshRenderer> _photoParts = new List<MeshRenderer>();
     private readonly List<MeshRenderer> _computerParts = new List<MeshRenderer>();
     private readonly List<MeshRenderer> _printerParts = new List<MeshRenderer>();
     private RectTransform _registrationDisplay;
+    private readonly AAH_WorldHover _hover = new AAH_WorldHover();
+
+    private void LateUpdate()
+    {
+        var step = FocusedTarget;
+        if (step == null || !step.IsStepActive || _sequence.Busy || Time.timeScale <= 0f) return;
+        if (step == _sequence.stepCameraTripod) _hover.Draw(step.transform, _camera, _photoParts);
+        else if (step == _sequence.stepComputer) _hover.Draw(step.transform, _camera, _computerParts);
+        else if (step == _sequence.stepPrinter) _hover.Draw(step.transform, _camera, _printerParts);
+        else _hover.Draw(step.targetCollider != null ? step.targetCollider.transform : step.transform, _camera);
+    }
 
     private UnityEngine.InputSystem.InputAction _interact, _cancel;
     public AAH_InteractableStep FocusedTarget { get; private set; }
@@ -136,8 +147,7 @@ public class AAH_CheckInInteractionController : MonoBehaviour
     private AAH_InteractableStep LookAtDevice(AAH_InteractableStep step, List<MeshRenderer> parts, Ray ray)
     {
         bool photo = step == _sequence.stepCameraTripod;
-        float reach = photo ? Mathf.Max(MinimumPhotoReach, step.interactionDistance + 1f) : DeskDeviceReach;
-        float rayLength = photo ? Mathf.Max(11f, reach + 1f) : DeskDeviceReach;
+        float rayLength = photo ? OriginalPhotoRayLength : DeskDeviceReach;
         Bounds focusedBounds = default;
         float surface = float.PositiveInfinity;
         foreach (var part in parts)
@@ -179,13 +189,13 @@ public class AAH_CheckInInteractionController : MonoBehaviour
         if (surface > rayLength) return null;
         if (photo)
         {
-            // Measure horizontal reach to the near side
+            // Keep the camera step's saved horizontal reach. Measure to the near side
             // of the part in focus, even when the ray passes through a gap in its mesh.
             Vector3 player = _sequence.playerController != null
                 ? _sequence.playerController.transform.position : _camera.transform.position;
             Vector3 offset = focusedBounds.ClosestPoint(player) - player;
             offset.y = 0f;
-            if (offset.sqrMagnitude > reach * reach) return null;
+            if (offset.sqrMagnitude > step.interactionDistance * step.interactionDistance) return null;
         }
         return step;
     }
@@ -228,6 +238,7 @@ public class AAH_CheckInInteractionController : MonoBehaviour
     private void OnDisable() { _interact?.Disable(); _cancel?.Disable(); }
     private void OnDestroy()
     {
+        _hover.Dispose();
         if (_interact != null) { _interact.performed -= Interact; _interact.Dispose(); }
         if (_cancel != null) { _cancel.performed -= Cancel; _cancel.Dispose(); }
     }

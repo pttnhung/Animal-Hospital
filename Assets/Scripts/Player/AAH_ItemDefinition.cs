@@ -20,6 +20,23 @@ public class AAH_ItemDefinition : ScriptableObject
     [Tooltip("Sanity restored when consumed.")]
     [SerializeField, Min(0)] private int _sanityRestore;
 
+    [SerializeField, Min(1)] private int _usesPerItem = 1;
+    public int UsesPerItem => Mathf.Max(1, _usesPerItem);
+
+    public static AAH_ItemDefinition CreateChocolate(GameObject model, Sprite icon)
+    {
+        var item = CreateInstance<AAH_ItemDefinition>();
+        item._itemId = "chocolate";
+        item._displayName = "Chocolate";
+        item._equippedModel = model;
+        item._equippedSize = 0.22f;
+        item._icon = icon;
+        item._consumable = true;
+        item._sanityRestore = 40;
+        item._usesPerItem = 3;
+        return item;
+    }
+
     // Per-dose identity lets the room remove only the item issued for this order.
     public static AAH_ItemDefinition CreateMedicine(string label, Texture2D image, GameObject bottle)
     {
