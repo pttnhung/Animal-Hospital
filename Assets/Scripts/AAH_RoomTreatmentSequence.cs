@@ -45,6 +45,8 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
     [SerializeField] private TMPro.TMP_Text[] _medicineLabels;
     private AAH_PatientActor _patient;
     private Collider _patientCollider;
+    private Transform _patientBed;
+    private readonly RaycastHit[] _patientOcclusionHits = new RaycastHit[32];
     private UnityEngine.InputSystem.InputAction _interact;
     private readonly List<GameObject> _patientOutline = new List<GameObject>();
     private readonly List<GameObject> _scanOutline = new List<GameObject>();
@@ -60,8 +62,16 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
     internal Material HoverMaterial => _outlineMaterial;
     private readonly AAH_WorldHover _bottleHover = new AAH_WorldHover();
 
+    private readonly AAH_WorldHover _deviceHover = new AAH_WorldHover();
+
     private void LateUpdate()
     {
+        if (UsesDeviceRings && IsFocused)
+        {
+            Renderer device = Stage == TreatmentStage.Scan ? _scan :
+                Stage == TreatmentStage.Computer ? _computer : null;
+            if (device != null) _deviceHover.Draw(device.transform, _playerCamera);
+        }
         if (Stage == TreatmentStage.CollectingMedicine && _deliveryOwner == this && IsFocused &&
             _focusedOrder >= 0 && _focusedBottle != null && Time.timeScale > 0f)
             _bottleHover.Draw(_focusedBottle.transform, _playerCamera);
@@ -72,8 +82,18 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
         AAH_InteractionHints.Center(_prompt);
         _interact = new UnityEngine.InputSystem.InputAction("Room" + _roomNumber.ToString("00") + "Treatment", UnityEngine.InputSystem.InputActionType.Button, "<Keyboard>/e");
         _interact.performed += HandleInteract;
-        BuildOutline(new[] { _scan }, _scanOutline);
-        BuildOutline(new[] { _computer }, _computerOutline);
+        if (UsesDeviceRings)
+        {
+            if (_outlineMaterial == null)
+                _outlineMaterial = Resources.Load<Material>("VetNightmare/DeviceGuide/ModelOutline");
+            BuildDeviceRing(_scan, _scanOutline, false);
+            BuildDeviceRing(_computer, _computerOutline, true);
+        }
+        else
+        {
+            BuildOutline(new[] { _scan }, _scanOutline);
+            BuildOutline(new[] { _computer }, _computerOutline);
+        }
         Stage = TreatmentStage.WaitingForBed;
         if (_progressFill != null) _progressFill.fillAmount = 0f;
         if (_computerStatus != null) _computerStatus.text = "CHỜ PHÂN TÍCH";
@@ -113,8 +133,10 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
             PreparePatient();
         IsFocused = SelectTarget();
         SetOutline(_patientOutline, Stage == TreatmentStage.Patient && IsFocused);
-        SetOutline(_scanOutline, Stage == TreatmentStage.Scan && IsFocused);
-        SetOutline(_computerOutline, Stage == TreatmentStage.Computer && IsFocused);
+        bool deviceVisible = IsFocused || (UsesDeviceRings && Time.timeScale > 0f &&
+            (AAH_GameManager.Instance == null || (AAH_GameManager.Instance.shiftActive && !AAH_GameManager.Instance.shiftEnded)));
+        SetOutline(_scanOutline, Stage == TreatmentStage.Scan && deviceVisible);
+        SetOutline(_computerOutline, Stage == TreatmentStage.Computer && deviceVisible);
         if (_prompt != null)
             _prompt.text = IsFocused ? (Stage == TreatmentStage.Patient ? "[E] Khám bệnh nhân" : Stage == TreatmentStage.Scan ? "[E] Phân tích bệnh" : "[E] Phân tích thuốc") : "";
         UpdateDelivery();
@@ -152,6 +174,11 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
         var box = proxy.AddComponent<BoxCollider>();
         box.isTrigger = true; box.size = bounds.size + Vector3.one * 0.12f;
         _patientCollider = box;
+        _patientBed = null;
+        if (_checkIn != null && _checkIn.roomRegistry != null)
+            foreach (var room in _checkIn.roomRegistry.Rooms)
+                if (room != null && room.roomNumber == _roomNumber && room.bedRenderer != null)
+                { _patientBed = room.bedRenderer.transform; break; }
         BuildOutline(_patient.GetComponentsInChildren<Renderer>(true), _patientOutline);
         Stage = TreatmentStage.Patient;
     }
@@ -160,6 +187,7 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
         if (Stage == TreatmentStage.CollectingMedicine) return SelectDeliveryTarget();
         if (_playerCamera == null || _patient == null || _patient.State != AAH_PatientActor.PatientState.AtBed || Time.timeScale <= 0f
             || (_checkIn != null && _checkIn.BlocksWorldInteraction) || Stage < TreatmentStage.Patient || Stage > TreatmentStage.Computer) return false;
+        if (Stage == TreatmentStage.Patient) return SelectPatientTarget();
         RaycastHit hit;
         if (!Physics.Raycast(_playerCamera.transform.position, _playerCamera.transform.forward, out hit, _rayDistance, ~0, QueryTriggerInteraction.Collide)) return false;
         bool matches = Stage == TreatmentStage.Patient ? hit.collider == _patientCollider
@@ -168,6 +196,29 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
         if (!matches) return false;
         var position = _player != null ? _player.position : _playerCamera.transform.position;
         return WithinInteractionDistance(hit, position);
+    }
+    private bool SelectPatientTarget()
+    {
+        if (_patientCollider == null || !_patientCollider.enabled) return false;
+        var ray = new Ray(_playerCamera.transform.position, _playerCamera.transform.forward);
+        if (!_patientCollider.Raycast(ray, out var patientHit, _rayDistance)) return false;
+        var position = _player != null ? _player.position : ray.origin;
+        if (!WithinInteractionDistance(patientHit, position)) return false;
+
+        // Select the lying patient's volume directly. The bed's rails and auxiliary
+        // triggers are not interaction targets; walls and other solid props still block.
+        int count = Physics.RaycastNonAlloc(ray, _patientOcclusionHits, patientHit.distance,
+            ~0, QueryTriggerInteraction.Ignore);
+        if (count == _patientOcclusionHits.Length) return false;
+        for (int i = 0; i < count; i++)
+        {
+            var hitTransform = _patientOcclusionHits[i].collider.transform;
+            if (hitTransform == _patient.transform || hitTransform.IsChildOf(_patient.transform)) continue;
+            if (_player != null && (hitTransform == _player || hitTransform.IsChildOf(_player))) continue;
+            if (_patientBed != null && (hitTransform == _patientBed || hitTransform.IsChildOf(_patientBed))) continue;
+            return false;
+        }
+        return true;
     }
     private bool WithinInteractionDistance(RaycastHit hit, Vector3 position)
     {
@@ -299,6 +350,72 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
         if (_progressFill != null) _progressFill.fillAmount = Progress;
         if (_computerStatus != null) _computerStatus.SetText("PHÂN TÍCH THUỐC\n{0:0}%", Progress * 100f);
     }
+    [Header("Day 1 device rings")]
+    [SerializeField, Min(0.01f)] private float _deviceRingWidth = 0.16f;
+    [SerializeField, Min(0.01f)] private float _deviceRingPadding = 0.45f;
+    [SerializeField, Min(0.01f)] private float _deviceRingLift = 0.12f;
+    private bool UsesDeviceRings => gameObject.scene.name == "Hospital_day1";
+
+    internal bool HasActiveDeviceRing =>
+        UsesDeviceRings && ((Stage == TreatmentStage.Scan && RingVisible(_scanOutline)) ||
+                            (Stage == TreatmentStage.Computer && RingVisible(_computerOutline)));
+
+    private static bool RingVisible(List<GameObject> objects) =>
+        objects.Count > 0 && objects[0] != null && objects[0].activeInHierarchy;
+
+    private void BuildDeviceRing(Renderer device, List<GameObject> output, bool computer)
+    {
+        if (device == null) return;
+        // This is the same green material as the reception ring. Its availability
+        // does not depend on which reception step is currently active.
+        var material = Resources.Load<Material>("VetNightmare/DeviceGuide/ReceptionRing");
+        if (material == null) return;
+
+        Bounds foot = TutorialDeviceFoot(device, computer);
+        bool hasSupport = foot.size.sqrMagnitude > 0f;
+        if (!hasSupport) foot = device.bounds;
+        Bounds footprint = foot;
+        if (computer && hasSupport && device.TryGetComponent<MeshFilter>(out var filter) &&
+            filter.sharedMesh != null && filter.sharedMesh.isReadable)
+        {
+            float reach = new Vector2(foot.extents.x, foot.extents.z).magnitude * 3f;
+            float low = foot.min.y - foot.size.y * 3f;
+            float high = foot.max.y + foot.size.y * 1.5f;
+            foreach (var vertex in filter.sharedMesh.vertices)
+            {
+                Vector3 point = device.transform.TransformPoint(vertex);
+                var distance = new Vector2(point.x - foot.center.x, point.z - foot.center.z);
+                if (point.y >= low && point.y <= high && distance.sqrMagnitude <= reach * reach)
+                    footprint.Encapsulate(point);
+            }
+        }
+        var obj = new GameObject(computer ? "ComputerGuideRing" : "ScanGuideRing");
+        obj.transform.SetParent(transform, false);
+        obj.layer = device.gameObject.layer;
+        var ring = obj.AddComponent<LineRenderer>();
+        ring.sharedMaterial = material;
+        ring.startColor = ring.endColor = Color.white;
+        float halfDiagonal = new Vector2(footprint.extents.x, footprint.extents.z).magnitude;
+        ring.widthMultiplier = Mathf.Clamp(halfDiagonal * 0.085f, 0.012f, Mathf.Max(0.012f, _deviceRingWidth));
+        ring.alignment = LineAlignment.View;
+        ring.loop = true;
+        ring.useWorldSpace = true;
+        ring.positionCount = 64;
+        ring.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        ring.receiveShadows = false;
+        Vector3 center = footprint.center;
+        center.y = foot.min.y + Mathf.Clamp(footprint.size.y * 0.15f, ring.widthMultiplier, Mathf.Max(ring.widthMultiplier, _deviceRingLift));
+        float padding = Mathf.Min(_deviceRingPadding, halfDiagonal * 0.20f);
+        float radius = halfDiagonal + Mathf.Max(padding, ring.widthMultiplier);
+        for (int i = 0; i < ring.positionCount; i++)
+        {
+            float angle = i * 2f * Mathf.PI / ring.positionCount;
+            ring.SetPosition(i, center + new Vector3(radius * Mathf.Cos(angle), 0f, radius * Mathf.Sin(angle)));
+        }
+        obj.SetActive(false);
+        output.Add(obj);
+    }
+
     private void BuildOutline(Renderer[] sources, List<GameObject> output)
     {
         if (_outlineMaterial == null) return;
@@ -341,6 +458,7 @@ public partial class AAH_RoomTreatmentSequence : MonoBehaviour
     }
     private void OnDestroy()
     {
+        _deviceHover.Dispose();
         _bottleHover.Dispose();
         ClearMedicineItems();
         if (_interact != null) { _interact.performed -= HandleInteract; _interact.Dispose(); }

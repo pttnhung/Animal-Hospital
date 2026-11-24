@@ -231,6 +231,165 @@ public partial class AAH_RoomTreatmentSequence
         var selected = SelectedMedicineOrder();
         return selected != null ? "[E] Đặt " + selected.label : "Chọn ô thuốc của bệnh nhân này";
     }
+    private readonly Dictionary<GameObject, Collider> _shelfTargets = new Dictionary<GameObject, Collider>();
+
+    private Bounds ShelfBounds(GameObject bottle)
+    {
+        if (!_shelfTargets.TryGetValue(bottle, out var collider))
+        {
+            var pickup = bottle.transform.Find("MedicinePickup");
+            collider = pickup != null ? pickup.GetComponent<Collider>() : null;
+            _shelfTargets.Add(bottle, collider);
+        }
+        if (collider != null) return collider.bounds;
+        var visual = bottle.GetComponentInChildren<Renderer>();
+        return visual != null ? visual.bounds : new Bounds(bottle.transform.position, Vector3.one * 0.2f);
+    }
+
+    private MedicineOrder NextShelfTarget(out GameObject nearest)
+    {
+        nearest = null;
+        Vector3 origin = _player != null ? _player.position : transform.position;
+        foreach (var order in _orders)
+        {
+            if (order.collected) continue;
+            float best = float.PositiveInfinity;
+            foreach (var bottle in order.stock.bottles)
+            {
+                if (bottle == null || !bottle.activeInHierarchy) continue;
+                float distance = (origin - ShelfBounds(bottle).center).sqrMagnitude;
+                if (distance < best) { best = distance; nearest = bottle; }
+            }
+            return order;
+        }
+        return null;
+    }
+
+    internal int TutorialRoomNumber => _roomNumber;
+    internal bool GuidesPrescription => Stage == TreatmentStage.CollectingMedicine && _deliveryOwner == this;
+
+    private readonly Dictionary<Renderer, int[]> _tutorialFootVertices = new Dictionary<Renderer, int[]>();
+
+    private static int TutorialMeshRoot(int[] parents, int index)
+    {
+        while (parents[index] != index)
+        {
+            parents[index] = parents[parents[index]];
+            index = parents[index];
+        }
+        return index;
+    }
+
+    private Bounds TutorialDeviceFoot(Renderer device, bool computer)
+    {
+        if (device == null || !device.TryGetComponent<MeshFilter>(out var filter) ||
+            filter.sharedMesh == null || !filter.sharedMesh.isReadable) return default;
+        var vertices = filter.sharedMesh.vertices;
+        if (!_tutorialFootVertices.TryGetValue(device, out var foot))
+        {
+            // Imported devices combine disconnected screen, support and accessory meshes.
+            // Weld coincident vertices before separating those parts by triangle connectivity.
+            var parents = new int[vertices.Length];
+            var world = new Vector3[vertices.Length];
+            var welded = new Dictionary<Vector3Int, int>();
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                parents[i] = i;
+                world[i] = device.transform.TransformPoint(vertices[i]);
+                var key = Vector3Int.RoundToInt(world[i] * 10000f);
+                if (welded.TryGetValue(key, out int previous)) parents[i] = TutorialMeshRoot(parents, previous);
+                else welded.Add(key, i);
+            }
+            var triangles = filter.sharedMesh.triangles;
+            for (int i = 0; i < triangles.Length; i += 3)
+            {
+                int root = TutorialMeshRoot(parents, triangles[i]);
+                parents[TutorialMeshRoot(parents, triangles[i + 1])] = root;
+                parents[TutorialMeshRoot(parents, triangles[i + 2])] = root;
+            }
+            var parts = new Dictionary<int, List<int>>();
+            var bounds = new Dictionary<int, Bounds>();
+            int body = -1;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                int root = TutorialMeshRoot(parents, i);
+                if (!parts.ContainsKey(root))
+                {
+                    parts.Add(root, new List<int>());
+                    bounds.Add(root, new Bounds(world[i], Vector3.zero));
+                }
+                parts[root].Add(i);
+                var partBounds = bounds[root];
+                partBounds.Encapsulate(world[i]);
+                bounds[root] = partBounds;
+                if (body < 0 || parts[root].Count > parts[body].Count) body = root;
+            }
+            int basePart = -1;
+            if (body >= 0)
+            {
+                var bodyBounds = bounds[body];
+                float bodyArea = bodyBounds.size.x * bodyBounds.size.z;
+                foreach (var part in parts)
+                {
+                    var b = bounds[part.Key];
+                    float area = b.size.x * b.size.z;
+                    // The wide, thin support beneath the body is neither a mouse nor a table.
+                    if (part.Value.Count < 12 || b.size.y > bodyBounds.size.y * 0.25f ||
+                        area < bodyArea * (computer ? 0.15f : 0.3f) ||
+                        area > bodyArea * (computer ? 0.8f : 2.5f) ||
+                        b.min.y > bodyBounds.min.y) continue;
+                    if (basePart < 0 || b.min.y < bounds[basePart].min.y) basePart = part.Key;
+                }
+            }
+            foot = basePart >= 0 ? parts[basePart].ToArray() : System.Array.Empty<int>();
+            _tutorialFootVertices.Add(device, foot);
+        }
+        if (foot.Length == 0) return default;
+        var result = new Bounds(device.transform.TransformPoint(vertices[foot[0]]), Vector3.zero);
+        foreach (int index in foot) result.Encapsulate(device.transform.TransformPoint(vertices[index]));
+        return result;
+    }
+
+    internal string TutorialAction(out Bounds bounds)
+    {
+        bounds = default;
+        if (_patient == null) return null;
+        switch (Stage)
+        {
+            case TreatmentStage.WaitingForBed:
+                return "Theo " + _patient.DisplayName + " đến giường khám.";
+            case TreatmentStage.Patient:
+                bounds = _patient.VisualBounds;
+                return "Đến cạnh giường, nhìn " + _patient.DisplayName + " và nhấn E để khám.";
+            case TreatmentStage.Scan:
+                if (_scan != null) bounds = AAH_GameManager.Instance != null && AAH_GameManager.Instance.currentDay == 1
+                    ? TutorialDeviceFoot(_scan, false) : _scan.bounds;
+                return "Nhìn vào máy quét có vòng xanh, nhấn E để phân tích bệnh.";
+            case TreatmentStage.Computer:
+                if (_computer != null) bounds = AAH_GameManager.Instance != null && AAH_GameManager.Instance.currentDay == 1
+                    ? TutorialDeviceFoot(_computer, true) : _computer.bounds;
+                return "Nhìn vào máy tính có vòng xanh, nhấn E để phân tích đơn thuốc.";
+            case TreatmentStage.Analyzing:
+                return "Chờ máy tính phân tích đơn thuốc.";
+            case TreatmentStage.CollectingMedicine:
+                if (!GuidesPrescription) return "Chờ hoàn tất đơn thuốc đang được hướng dẫn.";
+                var order = NextShelfTarget(out var bottle);
+                if (order != null)
+                {
+                    if (bottle != null) bounds = ShelfBounds(bottle);
+                    if (_inventory != null && !_inventory.HasFreeSlot)
+                        return "Túi đầy. Dùng vật phẩm hoặc bỏ bớt đồ trước khi lấy thuốc.";
+                    return "Tìm " + order.label + " trên kệ, nhìn lọ có vòng xanh và nhấn E.";
+                }
+                bounds = _patient.VisualBounds;
+                return "Chọn ô thuốc (1–5), nhìn bệnh nhân và nhấn E để đặt thuốc.";
+            case TreatmentStage.Treating:
+                return "Đã đặt đủ thuốc. Chờ bệnh nhân hồi phục.";
+            default:
+                return null;
+        }
+    }
+
     private void UpdateDelivery()
     {
         bool active = Stage == TreatmentStage.CollectingMedicine && OwnsDelivery();
@@ -240,21 +399,10 @@ public partial class AAH_RoomTreatmentSequence
             if (_guideText != null) _guideText.text = "";
             return;
         }
-        Vector3 target = _patient.VisualBounds.center;
-        string instruction = "Về phòng " + _roomNumber.ToString("00") + ", đặt thuốc cho bệnh nhân";
-        foreach (var order in _orders)
-        {
-            if (order.collected) continue;
-            float best = float.PositiveInfinity;
-            foreach (var bottle in order.stock.bottles)
-            {
-                if (bottle == null || !bottle.activeInHierarchy) continue;
-                float distance = (_player.position - bottle.transform.position).sqrMagnitude;
-                if (distance < best) { best = distance; target = bottle.transform.position; }
-            }
-            instruction = "Lấy " + order.label + " trên kệ thuốc";
-            break;
-        }
+        var order = NextShelfTarget(out var bottle);
+        Vector3 target = bottle != null ? ShelfBounds(bottle).center : _patient.VisualBounds.center;
+        string instruction = order != null ? "Lấy " + order.label + " trên kệ thuốc" :
+            "Về phòng " + _roomNumber.ToString("00") + ", đặt thuốc cho bệnh nhân";
         if (_guideArrow != null)
         {
             var direction = target - _playerCamera.transform.position;
