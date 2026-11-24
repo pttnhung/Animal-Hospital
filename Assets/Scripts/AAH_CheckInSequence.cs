@@ -169,7 +169,8 @@ public class AAH_CheckInSequence : MonoBehaviour
     }
     public bool HasPatient => _patient != null;
     public AAH_PatientActor CurrentPatient => _patient;
-    public bool ReadyForPatient => isActiveAndEnabled && _patient == null && roomRegistry != null && roomRegistry.FreeCount > 0;
+    private bool IsDay2 => AAH_GameManager.Instance != null && AAH_GameManager.Instance.currentDay == 2;
+    public bool ReadyForPatient => isActiveAndEnabled && _patient == null && (!IsDay2 || _operation == null) && roomRegistry != null && roomRegistry.FreeCount > 0;
     private Coroutine _ambientDialogue;
     private string _ambientText;
     public bool IsAmbientDialogueVisible => _ambientDialogue != null;
@@ -229,6 +230,7 @@ public class AAH_CheckInSequence : MonoBehaviour
     {
         if (!ReadyForPatient || patient == null) return false;
         CancelAmbientDialogue();
+        if (IsDay2) HidePhoto();
         _reservedRoom = null;
         _patient = patient; activePatientObject = patient.gameObject;
         patientName = patient.DisplayName; patientDialogue = patient.Dialogue; _sentCompletion = false;
@@ -314,13 +316,48 @@ public class AAH_CheckInSequence : MonoBehaviour
         }
         _busy = false; SetStep(CheckInStep.Step1_Clipboard); _operation = null;
     }
+    private readonly System.Collections.Generic.Dictionary<string, string> _clipboardReasons =
+        new System.Collections.Generic.Dictionary<string, string>();
+
+    private string ClipboardReason(AAH_PatientActor patient)
+    {
+        if (_clipboardReasons.TryGetValue(patient.PatientId, out var reason)) return reason;
+        switch (patient.Illness)
+        {
+            case AAH_PatientActor.IllnessType.Dehydration:
+            case AAH_PatientActor.IllnessType.Hypoglycemia: reason = "Mệt mỏi"; break;
+            case AAH_PatientActor.IllnessType.Bruises: reason = "Đau chân"; break;
+            case AAH_PatientActor.IllnessType.Fever: reason = "Sốt"; break;
+            case AAH_PatientActor.IllnessType.Stomachache: reason = "Đau bụng"; break;
+            case AAH_PatientActor.IllnessType.CommonCold: reason = "Ho"; break;
+            case AAH_PatientActor.IllnessType.DryEyes:
+            case AAH_PatientActor.IllnessType.EyePain: reason = "Đau mắt"; break;
+            case AAH_PatientActor.IllnessType.SkinRash: reason = "Ngứa da"; break;
+            case AAH_PatientActor.IllnessType.Bleeding: reason = "Chảy máu"; break;
+            case AAH_PatientActor.IllnessType.Headache: reason = "Đau đầu"; break;
+            default:
+                string[] symptoms = { "Mệt mỏi", "Đau mắt", "Đau chân", "Ho", "Sốt" };
+                reason = symptoms[UnityEngine.Random.Range(0, symptoms.Length)];
+                break;
+        }
+        _clipboardReasons.Add(patient.PatientId, reason);
+        return reason;
+    }
+
     private bool Accept(CheckInStep expected) => !Busy && _patient != null && currentStep == expected;
     private void HandleClipboardInteracted()
     {
         if (!Accept(CheckInStep.Step1_Clipboard)) return;
         if (panelClipboard == null || btnSignClipboard == null) { Debug.LogError("Clipboard UI is not wired.", this); return; }
         _modal = true; SetStep(currentStep); panelClipboard.SetActive(true);
-        if (txtClipboardPatientName != null) txtClipboardPatientName.text = "HỒ SƠ TIẾP NHẬN\n\nBệnh nhân: " + patientName + "\nMã hồ sơ: " + _patient.PatientId + "\nLịch hẹn: Khám ban đầu\n\nXem và ký xác nhận hồ sơ.";
+        if (txtClipboardPatientName != null)
+        {
+            txtClipboardPatientName.richText = true;
+            txtClipboardPatientName.text = "<align=center><b>PHIẾU TIẾP NHẬN BỆNH NHÂN</b></align>\n\n"
+                + "<align=left>Họ và tên bệnh nhân: " + _patient.DisplayName
+                + "\nMã hồ sơ: " + _patient.PatientId
+                + "\nLý do đến khám: " + ClipboardReason(_patient) + "</align>";
+        }
         _savedCursor = Cursor.lockState; _savedVisible = Cursor.visible;
         if (playerController != null) { _savedCanMove = playerController.canMove; playerController.canMove = false; }
         Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
@@ -346,28 +383,36 @@ public class AAH_CheckInSequence : MonoBehaviour
     private IEnumerator CapturePhotoRoutine()
     {
         PlaySound(soundCameraShutter);
+        var subject = _patient;
+        bool day2 = IsDay2;
+        bool noisy = day2 && subject.IsAnomaly;
+        bool develop = !day2 || noisy;
         bool captured = false;
-        try { CaptureSnapshot(); captured = true; }
+        try { CaptureSnapshot(subject, noisy); captured = true; }
         catch (Exception e) { Debug.LogError("Patient photo failed: " + e.Message, this); }
         if (!captured) { _busy = false; SetStep(currentStep); _operation = null; yield break; }
-        txtPolaroidName.text = patientName;
-        imgPolaroidPhoto.color = Color.black;
+        txtPolaroidName.text = subject.DisplayName;
+        imgPolaroidPhoto.color = develop ? Color.black : Color.white;
         _photoExpiresAt = Time.unscaledTimeAsDouble + PhotoDisplaySeconds;
         cardPolaroidHUD.SetActive(true);
         if (panelFlash != null) { panelFlash.SetActive(true); yield return new WaitForSeconds(0.12f); panelFlash.SetActive(false); }
         float elapsed = 0f;
-        while (elapsed < photoDevelopDuration) { elapsed += Time.deltaTime; imgPolaroidPhoto.color = Color.Lerp(Color.black, Color.white, elapsed / photoDevelopDuration); yield return null; }
-        AAH_PolaroidNoise.SetFor(imgPolaroidPhoto, CurrentPatient != null && CurrentPatient.IsAnomaly);
+        while (elapsed < photoDevelopDuration)
+        {
+            elapsed += Time.deltaTime;
+            if (develop) imgPolaroidPhoto.color = Color.Lerp(Color.black, Color.white, elapsed / photoDevelopDuration);
+            yield return null;
+        }
         imgPolaroidPhoto.color = Color.white; stepCameraTripod.MarkCompleted(); _busy = false;
         SetStep(CheckInStep.Step3_ComputerRegister); _operation = null;
     }
-    private void CaptureSnapshot()
+    private void CaptureSnapshot(AAH_PatientActor subject, bool noisy)
     {
         if (photoCaptureCamera == null || imgPolaroidPhoto == null || cardPolaroidHUD == null || txtPolaroidName == null) throw new InvalidOperationException("Photo UI/camera missing");
-        var bounds = _patient.VisualBounds;
+        var bounds = subject.VisualBounds;
         photoCaptureCamera.transform.position = bounds.center + DeskForward(patientStandPoint) * 4.5f + Vector3.up * 0.6f;
-        _patient.FacePhotoCamera(photoCaptureCamera.transform.position);
-        bounds = _patient.VisualBounds;
+        subject.FacePhotoCamera(photoCaptureCamera.transform.position);
+        bounds = subject.VisualBounds;
         photoCaptureCamera.transform.LookAt(bounds.center + Vector3.up * 0.7f);
         photoCaptureCamera.fieldOfView = 65f;
         var oldTarget = photoCaptureCamera.targetTexture; var oldActive = RenderTexture.active;
@@ -376,16 +421,47 @@ public class AAH_CheckInSequence : MonoBehaviour
         Sprite sprite;
         try
         {
-            photoCaptureCamera.targetTexture = rt; photoCaptureCamera.Render(); RenderTexture.active = rt;
-            texture = new Texture2D(512, 512, TextureFormat.RGB24, false);
-            texture.ReadPixels(new Rect(0, 0, 512, 512), 0, 0); texture.Apply();
+            RenderTexture.active = rt;
+            GL.Clear(true, true, Color.black);
+            photoCaptureCamera.targetTexture = rt;
+            photoCaptureCamera.Render();
+            RenderTexture.active = rt;
+            texture = new Texture2D(512, 512, noisy ? TextureFormat.RGBA32 : TextureFormat.RGB24, false);
+            texture.ReadPixels(new Rect(0, 0, 512, 512), 0, 0, false);
+            if (noisy) AddPhotoNoise(texture);
+            texture.Apply(false);
             sprite = Sprite.Create(texture, new Rect(0, 0, 512, 512), new Vector2(0.5f, 0.5f));
         }
         catch { if (texture != null) Destroy(texture); throw; }
         finally { photoCaptureCamera.targetTexture = oldTarget; RenderTexture.active = oldActive; RenderTexture.ReleaseTemporary(rt); }
         ReleasePhoto(); _photoTexture = texture;
         _photoSprite = sprite;
+        imgPolaroidPhoto.overrideSprite = null;
         imgPolaroidPhoto.sprite = _photoSprite;
+    }
+    // Distort only this captured texture. Never put a shared effect on the camera or HUD.
+    private static void AddPhotoNoise(Texture2D texture)
+    {
+        var pixels = texture.GetPixels32();
+        var random = new System.Random(7321);
+        int width = texture.width;
+        var row = new Color32[width];
+        for (int y = 0; y < texture.height; y++)
+        {
+            int start = y * width;
+            Array.Copy(pixels, start, row, 0, width);
+            int shift = y % 47 < 3 ? 12 : 0;
+            int scanLine = y % 4 == 0 ? -22 : 0;
+            for (int x = 0; x < width; x++)
+            {
+                var color = row[Mathf.Clamp(x + shift, 0, width - 1)];
+                int noise = random.Next(-12, 13) + scanLine;
+                int red = row[Mathf.Min(x + shift + 3, width - 1)].r;
+                pixels[start + x] = new Color32((byte)Mathf.Clamp(red + noise, 0, 255),
+                    (byte)Mathf.Clamp(color.g + noise, 0, 255), (byte)Mathf.Clamp(color.b + noise, 0, 255), 255);
+            }
+        }
+        texture.SetPixels32(pixels);
     }
     private void HidePhoto()
     {
