@@ -145,8 +145,7 @@ PlayerSettings:
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
   bundleVersion: 1.0
-  preloadedAssets:
-  - {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  preloadedAssets: []
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   m_HolographicPauseOnTrackingLoss: 1
@@ -938,11 +937,11 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 2
   windowsGamepadBackendHint: 0
-  cloudProjectId: e5113c81-52df-4cf1-9848-84cebc606771
+  cloudProjectId: 82abd40b-2b31-4945-a03c-0d973a760d00
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: horror game
-  organizationId: unity_f6243d4f5857de822ae4
+  projectName: Horror Game
+  organizationId: hadeha2004
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}
