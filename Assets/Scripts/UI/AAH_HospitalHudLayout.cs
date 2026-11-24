@@ -11,7 +11,7 @@ public sealed class AAH_HospitalHudLayout : MonoBehaviour
     private static readonly Color Heading = new Color32(255, 220, 138, 255);
     private readonly List<Caption> captions = new List<Caption>();
     private readonly List<TMP_Text> guides = new List<TMP_Text>();
-    private RectTransform hud, inventoryBar, objective;
+    private RectTransform hud, inventoryBar;
     private TMP_Text queue, useHint;
     private AAH_PlayerInventory inventory;
     private static readonly string[] ChocolateHints =
@@ -71,13 +71,9 @@ public sealed class AAH_HospitalHudLayout : MonoBehaviour
             var id = label.name;
             if (id == "TXT_Day1Objective")
             {
-                objective = label.rectTransform.parent as RectTransform;
-                if (objective.TryGetComponent<Image>(out var image)) image.color = PlateColor;
-                Style(label, 19, 25, Heading);
-                label.rectTransform.anchorMin = Vector2.zero;
-                label.rectTransform.anchorMax = Vector2.one;
-                label.rectTransform.offsetMin = new Vector2(10, 3);
-                label.rectTransform.offsetMax = new Vector2(-10, -3);
+                // This label and its panel are authored in the scene. Content updates
+                // must not replace their Inspector layout or typography.
+                continue;
             }
             else if (id == "TXT_CheckInQueue")
             {
@@ -137,10 +133,9 @@ public sealed class AAH_HospitalHudLayout : MonoBehaviour
         lastSize = hud.rect.size;
         float width = Mathf.Min(1000f, lastSize.x * 0.58f);
         if (queue != null) Place(queue.rectTransform, 0f, 24f, width, 32f);
-        if (objective != null) Place(objective, 0f, 70f, width, 54f);
         float guideWidth = Mathf.Min(width - 68f, 640f);
         foreach (var label in guides)
-            Place(label.rectTransform, 28f, 150f, guideWidth, 62f);
+            Place(label.rectTransform, 28f, -label.rectTransform.anchoredPosition.y, guideWidth, 62f);
         foreach (var caption in captions)
             if (caption.arrow != null) Place(caption.arrow, 0f, 150f, 70f, 70f);
         var hint = useHint.rectTransform;
