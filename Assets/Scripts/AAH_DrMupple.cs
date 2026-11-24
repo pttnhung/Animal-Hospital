@@ -167,7 +167,8 @@ public class AAH_DrMupple : MonoBehaviour
     }
     public IEnumerator PlayDay1Entrance(Transform player, AAH_CheckInSequence dialogue, AAH_Day1Dialogue data)
     {
-        return PlayStoryEntrance(dialogue, data, data != null ? data.Mupple : null, () => Day1DialogueCompleted?.Invoke());
+        return PlayStoryEntrance(dialogue, data, data != null ? data.Mupple : null,
+            () => Day1DialogueCompleted?.Invoke(), practiceShutter: true);
     }
     public IEnumerator PlayDay2Entrance(Transform player, AAH_CheckInSequence dialogue, AAH_Day1Dialogue data, System.Action done)
     {
@@ -178,7 +179,7 @@ public class AAH_DrMupple : MonoBehaviour
         };
         return PlayStoryEntrance(dialogue, data, lines, done);
     }
-    private IEnumerator PlayStoryEntrance(AAH_CheckInSequence dialogue, AAH_Day1Dialogue data, AAH_Day1Dialogue.Line[] lines, System.Action done)
+    private IEnumerator PlayStoryEntrance(AAH_CheckInSequence dialogue, AAH_Day1Dialogue data, AAH_Day1Dialogue.Line[] lines, System.Action done, bool practiceShutter = false)
     {
         if (activated) yield break;
         if (muppleModel == null || dialogue == null || data == null)
@@ -199,8 +200,52 @@ public class AAH_DrMupple : MonoBehaviour
         if (!TryRoute(receptionStand, 12f, out var path)) yield break;
         yield return WalkRoute(path);
         PlaceAt(_groundPosition, dialogue.DeskForward(receptionStand));
-        yield return dialogue.ShowStoryDialogue("Bác sĩ Mupple", data, lines);
+        if (practiceShutter) yield return Day1Briefing(dialogue, data);
+        else yield return dialogue.ShowStoryDialogue("Bác sĩ Mupple", data, lines);
         done?.Invoke();
+    }
+    private IEnumerator Day1Briefing(AAH_CheckInSequence dialogue, AAH_Day1Dialogue data)
+    {
+        const string speaker = "Bác sĩ Mupple";
+        foreach (var line in data.Mupple)
+        {
+            if (line == null) continue;
+            if (line.key != "day1.muple.shutter")
+            {
+                yield return dialogue.ShowStoryDialogue(speaker, data, new[] { line });
+                continue;
+            }
+
+            // Start the marker when this line can actually take the dialogue panel.
+            while (dialogue.Busy || dialogue.panelDialogue.activeSelf) yield return null;
+            AAH_ReceptionShutterButton button = null;
+            foreach (var candidate in FindObjectsByType<AAH_ReceptionShutterButton>(FindObjectsSortMode.None))
+            {
+                if (candidate.gameObject.scene != gameObject.scene || !candidate.isActiveAndEnabled) continue;
+                button = candidate;
+                break;
+            }
+            var step = dialogue.stepComputer;
+            if (button == null || !button.BeginDay1Practice(step != null ? step.highlightRing : null))
+            {
+                Debug.LogWarning("Không thể đánh dấu nút cửa sập ở quầy lễ tân trong Ngày 1.", this);
+                yield return dialogue.ShowStoryDialogue(speaker, data, new[] { line });
+                continue;
+            }
+
+            try
+            {
+                AAH_GameManager.Instance?.SetDay1Objective(
+                    "Ngày 1 · Đến quầy lễ tân, nhìn nút đỏ trong vòng xanh và nhấn E để thử cửa sập.");
+                yield return dialogue.ShowStoryDialogue(speaker, data, new[] { line });
+                while (button != null && button.PracticeActive) yield return null;
+                AAH_GameManager.Instance?.SetDay1Objective("Ngày 1 · Lắng nghe lời dặn cuối của bác sĩ Mupple.");
+            }
+            finally
+            {
+                if (button != null) button.EndDay1Practice();
+            }
+        }
     }
     public event System.Action Day1DialogueCompleted;
 

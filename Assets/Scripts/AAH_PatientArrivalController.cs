@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class AAH_PatientArrivalController : MonoBehaviour
@@ -40,9 +41,12 @@ public class AAH_PatientArrivalController : MonoBehaviour
     }
     private IEnumerator QueueRoutine()
     {
+        bool day2 = _gameManager.currentDay == 2;
+        var admitted = day2 ? new List<(string id, AAH_PatientActor actor)>(_patients.Length) : null;
         yield return new WaitForSeconds(_arrivalDelay);
         while (_nextPatient < _patients.Length)
         {
+            if (day2 && _gameManager.shiftEnded) yield break;
             if (!_sequence.ReadyForPatient) { yield return null; continue; }
             var profile = _patients[_nextPatient];
             if (profile == null || profile.model == null) { Debug.LogError("Missing patient model at queue index " + _nextPatient, this); yield break; }
@@ -63,32 +67,44 @@ public class AAH_PatientArrivalController : MonoBehaviour
             actor.AssignIllness(_gameManager.currentDay, _nextPatient + 1);
             go.SetActive(true);
             if (!_sequence.BeginPatient(actor)) { Destroy(go); yield return null; continue; }
-            string visitorId = actor.PatientId;
-            _nextPatient++; actor.Approach(_entrance, _stand);
-            while (_sequence.HasPatient) yield return null;
-            if (_gameManager.currentDay == 2)
+            if (day2) admitted.Add((actor.PatientId, actor));
+            _nextPatient++;
+            actor.Approach(_entrance, _stand);
+            while (_sequence.HasPatient)
             {
-                while (!_gameManager.HasDay2Outcome(visitorId) && !(actor != null && actor.IsAnomaly && actor.HasEnteredExamRoom))
+                if (day2 && _gameManager.shiftEnded) yield break;
+                yield return null;
+            }
+            if (_nextPatient < _patients.Length)
+                yield return new WaitForSeconds(_arrivalDelay);
+        }
+
+        if (!day2) yield break;
+        // Reception can run ahead of treatment. The report still waits for every visit.
+        foreach (var visitor in admitted)
+        {
+            while (!_gameManager.shiftEnded && !_gameManager.HasDay2Outcome(visitor.id))
+            {
+                var actor = visitor.actor;
+                if (actor == null)
                 {
-                    if (actor.State == AAH_PatientActor.PatientState.Blocked)
-                    {
-                        Debug.LogError("Ngày 2 dừng ở " + actor.DisplayName + ". Kiểm tra NavMesh và các điểm đến.", this);
-                        yield break;
-                    }
-                    yield return null;
-                }
-                if (_nextPatient == _patients.Length)
-                {
-                    while (_gameManager.HasPendingAttack()) yield return null;
-                    if (_gameManager.shiftEnded) yield break;
-                    var story = FindFirstObjectByType<AAH_Day1Story>();
-                    if (story != null) story.EndDay2Queue();
-                    else Debug.LogError("Ngày 2 thiếu component AAH_Day1Story có tham chiếu tới bác sĩ.", this);
+                    Debug.LogError("Ngày 2 thiếu kết quả của bệnh nhân " + visitor.id + ".", this);
                     yield break;
                 }
+                if (actor.IsAnomaly && actor.HasEnteredExamRoom) break;
+                if (actor.State == AAH_PatientActor.PatientState.Blocked)
+                {
+                    Debug.LogError("Ngày 2: kiểm tra đường đi của " + actor.DisplayName + ".", this);
+                    yield break;
+                }
+                yield return null;
             }
-            yield return new WaitForSeconds(_arrivalDelay);
         }
+        while (!_gameManager.shiftEnded && _gameManager.HasPendingAttack()) yield return null;
+        if (_gameManager.shiftEnded) yield break;
+        var story = FindFirstObjectByType<AAH_Day1Story>();
+        if (story != null) story.EndDay2Queue();
+        else Debug.LogError("Ngày 2 thiếu component AAH_Day1Story có tham chiếu tới bác sĩ.", this);
     }
     private void OnDisable() { StopAllCoroutines(); }
 }

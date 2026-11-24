@@ -85,10 +85,15 @@ public sealed class AAH_SoloGameOver : MonoBehaviour
 
     private void ChangeVolume(float change)
     {
+        AdjustMasterVolume(change);
+        DisplayVolume();
+    }
+
+    internal static void AdjustMasterVolume(float change)
+    {
         AudioListener.volume = Mathf.Clamp01(AudioListener.volume + change);
         PlayerPrefs.SetFloat(VolumeKey, AudioListener.volume);
         PlayerPrefs.Save();
-        DisplayVolume();
     }
 
     private void DisplayVolume()
@@ -96,7 +101,7 @@ public sealed class AAH_SoloGameOver : MonoBehaviour
         _volumeLabel.text = "Âm lượng tổng " + Mathf.RoundToInt(AudioListener.volume * 100f) + "%";
     }
 
-    private static RectTransform Element(Transform parent, string name, float width, float height, float y)
+    internal static RectTransform Element(Transform parent, string name, float width, float height, float y)
     {
         var rect = (RectTransform)new GameObject(name, typeof(RectTransform)).transform;
         rect.SetParent(parent, false);
@@ -105,7 +110,7 @@ public sealed class AAH_SoloGameOver : MonoBehaviour
         rect.anchoredPosition = new Vector2(0f, y);
         return rect;
     }
-    private static TMP_Text Label(Transform parent, string text, float size, float y)
+    internal static TMP_Text Label(Transform parent, string text, float size, float y)
     {
         var label = Element(parent, "Label", 700f, 72f, y).gameObject.AddComponent<TextMeshProUGUI>();
         label.text = text;
@@ -115,7 +120,7 @@ public sealed class AAH_SoloGameOver : MonoBehaviour
         return label;
     }
 
-    private static Button ButtonAt(Transform parent, string text, float y, UnityEngine.Events.UnityAction action)
+    internal static Button ButtonAt(Transform parent, string text, float y, UnityEngine.Events.UnityAction action)
     {
         var rect = Element(parent, text, 310f, 52f, y);
         var image = rect.gameObject.AddComponent<Image>();
